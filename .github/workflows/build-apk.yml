@@ -60,14 +60,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 'current'
+          gradle-version: '9.3.1'
           validate-wrappers: false
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Ensure Valid Gradle Wrapper
         run: |
-          echo "Generating clean Gradle wrapper on runner..."
-          gradle wrapper
+          echo "Generating Gradle 9.3.1 wrapper on runner..."
+          gradle wrapper --gradle-version 9.3.1
           chmod +x gradlew
 
       - name: Prepare Environment & Keystore
