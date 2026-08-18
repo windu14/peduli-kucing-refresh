@@ -60,11 +60,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
+          gradle-version: 'current'
           validate-wrappers: false
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
-      - name: Grant Execute Permission for Gradlew
-        run: chmod +x gradlew
+      - name: Ensure Valid Gradle Wrapper
+        run: |
+          echo "Generating clean Gradle wrapper on runner..."
+          gradle wrapper
+          chmod +x gradlew
 
       - name: Prepare Environment & Keystore
         run: |
