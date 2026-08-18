@@ -1,0 +1,146 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'release/**'
+      - 'feat/**'
+      - 'fix/**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - all
+      run_tests:
+        description: 'Run Unit Tests before build'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Prepare Environment & Keystore
+        run: |
+          # Setup .env file if not present
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
+          # Decode debug.keystore if base64 is available and keystore does not exist
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+
+          # If debug.keystore is still missing, generate a standard debug keystore
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Run Unit Tests
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: |
+          echo "Running unit tests..."
+          ./gradlew testDebugUnitTest --continue
+
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_type == 'debug' || inputs.build_type == 'all' }}
+        run: |
+          echo "Building Debug APK..."
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Build Release APK
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_type == 'release' || inputs.build_type == 'all') }}
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "Building Release APK..."
+          ./gradlew assembleRelease --stacktrace || echo "Release build requires valid signing credentials"
+
+      - name: Organize Output Artifacts
+        run: |
+          mkdir -p output_apks
+          
+          # Find and copy all generated APKs
+          find app/build/outputs/apk/ -name "*.apk" -type f | while read -r apk_file; do
+            filename=$(basename "$apk_file")
+            clean_name="${filename%.apk}-${{ github.sha }}.apk"
+            cp "$apk_file" "output_apks/$clean_name"
+            echo "Collected: output_apks/$clean_name"
+          done
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pedulicuking-apks-${{ github.sha }}
+          path: output_apks/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Generate Build Summary
+        run: |
+          echo "### 🚀 Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch / Ref:** \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 📦 Generated APKs" >> $GITHUB_STEP_SUMMARY
+          echo "| File Name | File Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---:|" >> $GITHUB_STEP_SUMMARY
+          for file in output_apks/*.apk; do
+            if [ -f "$file" ]; then
+              size=$(ls -lh "$file" | awk '{print $5}')
+              name=$(basename "$file")
+              echo "| \`$name\` | $size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done

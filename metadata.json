@@ -1,0 +1,6 @@
+{
+  "name": "Peduli Cuking",
+  "description": "Aplikasi komunitas peduli kucing jalanan dengan dokumentasi penemuan, peta interaktif, status kesehatan, dan gamifikasi XP.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
